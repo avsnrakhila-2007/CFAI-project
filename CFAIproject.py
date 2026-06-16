@@ -2,15 +2,8 @@ import heapq
 
 # ==========================================
 # Intelligent Campus Navigation Assistant
+# A* Search + IDS + Bayes Rule
 # ==========================================
-
-# -------------------------------------------------
-# CO1 : Problem Formulation & Graph Representation
-# Campus Map using Graph
-# Nodes = Locations
-# Edges = Roads
-# Values = (Distance, Time)
-# -------------------------------------------------
 
 campus = {
 
@@ -21,8 +14,7 @@ campus = {
 
     "Cafeteria": {
         "Library": (2, 5),
-        "Admin Office": (3, 4),
-        "Parking Area": (6, 10)
+        "Admin Office": (3, 4)
     },
 
     "Computer Lab": {
@@ -37,11 +29,6 @@ campus = {
         "Auditorium": (4, 5)
     },
 
-    "Parking Area": {
-        "Cafeteria": (6, 10),
-        "Auditorium": (3, 4)
-    },
-
     "Classroom Block": {
         "Computer Lab": (3, 4),
         "Auditorium": (2, 2)
@@ -49,133 +36,197 @@ campus = {
 
     "Auditorium": {
         "Admin Office": (4, 5),
-        "Parking Area": (3, 4),
         "Classroom Block": (2, 2)
     }
 }
 
-# -------------------------------------------------
-# CO3 : Constraint Satisfaction Problem (CSP)
-# Blocked / Restricted Paths
-# -------------------------------------------------
+# ==========================================
+# A* Heuristic
+# ==========================================
 
-blocked_paths = [
-    ("Parking Area", "Auditorium")
-]
+heuristic = {
 
-# -------------------------------------------------
-# CO5 : Probabilistic Reasoning
-# Crowd Probability
-# Higher value = More crowded
-# -------------------------------------------------
+    "Library": 8,
+    "Cafeteria": 6,
+    "Computer Lab": 4,
+    "Admin Office": 3,
+    "Classroom Block": 2,
+    "Auditorium": 0
+}
 
-traffic_probability = {
+# ==========================================
+# Prior Crowd Probabilities
+# ==========================================
+
+crowd_probability = {
 
     "Library": 0.2,
     "Cafeteria": 0.9,
     "Computer Lab": 0.4,
     "Admin Office": 0.3,
-    "Parking Area": 0.7,
     "Classroom Block": 0.2,
     "Auditorium": 0.1
 }
 
-# -------------------------------------------------
-# Function to Fix Case Sensitivity
-# Removes spaces and converts correctly
-# -------------------------------------------------
+# ==========================================
+# Normalize Input
+# ==========================================
 
 def normalize_location(user_input):
 
-    return user_input.strip().title()
+    return " ".join(
+        word.capitalize()
+        for word in user_input.strip().split()
+    )
 
-# -------------------------------------------------
-# CO2 : Search Algorithm
-# Dijkstra Based Intelligent Navigation
-# -------------------------------------------------
+# ==========================================
+# Bayes Rule
+# ==========================================
 
-def intelligent_navigation(graph, start, end, mode):
+def posterior_probability(location):
 
-    queue = [(0, start, [])]
+    prior = crowd_probability[location]
+
+    p_noise_given_crowded = 0.8
+    p_noise_given_not_crowded = 0.2
+
+    p_noise = (
+        p_noise_given_crowded * prior
+        +
+        p_noise_given_not_crowded * (1 - prior)
+    )
+
+    posterior = (
+        p_noise_given_crowded * prior
+    ) / p_noise
+
+    return posterior
+
+# ==========================================
+# A* Search
+# ==========================================
+
+def a_star(start, goal, mode):
+
+    pq = []
+
+    heapq.heappush(
+        pq,
+        (0, 0, start, [start])
+    )
 
     visited = set()
 
-    while queue:
+    while pq:
 
-        cost, node, path = heapq.heappop(queue)
+        f, g, node, path = heapq.heappop(pq)
+
+        if node == goal:
+            return g, path
 
         if node in visited:
             continue
 
         visited.add(node)
 
-        path = path + [node]
-
-        if node == end:
-            return cost, path
-
-        for neighbor, values in graph[node].items():
-
-            # -------------------------------------------------
-            # CO3 Covered Here
-            # Constraint Checking
-            # -------------------------------------------------
-
-            if ((node, neighbor) in blocked_paths or
-                (neighbor, node) in blocked_paths):
-
-                continue
+        for neighbor, values in campus[node].items():
 
             distance = values[0]
             time = values[1]
 
-            # -------------------------------------------------
-            # CO4 : Intelligent Decision Making
-            # -------------------------------------------------
-
             if mode == "shortest":
 
-                new_cost = cost + distance
+                edge_cost = distance
 
             elif mode == "fastest":
 
-                new_cost = cost + time
+                edge_cost = time
 
-            elif mode == "safest":
+            else:
 
-                safety_penalty = (
-                    traffic_probability[neighbor] * 10
+                edge_cost = posterior_probability(
+                    neighbor
                 )
 
-                new_cost = (
-                    cost +
-                    distance +
-                    safety_penalty
-                )
+            new_g = g + edge_cost
 
-            heapq.heappush(
-                queue,
-                (new_cost, neighbor, path)
+            new_f = (
+                new_g +
+                heuristic[neighbor]
             )
 
-    return float("inf"), []
+            heapq.heappush(
+                pq,
+                (
+                    new_f,
+                    new_g,
+                    neighbor,
+                    path + [neighbor]
+                )
+            )
 
-# -------------------------------------------------
+    return None, None
+
+# ==========================================
+# Depth Limited Search
+# ==========================================
+
+def dls(node, goal, limit, path):
+
+    if node == goal:
+        return path
+
+    if limit <= 0:
+        return None
+
+    for neighbor in campus[node]:
+
+        if neighbor not in path:
+
+            result = dls(
+                neighbor,
+                goal,
+                limit - 1,
+                path + [neighbor]
+            )
+
+            if result:
+                return result
+
+    return None
+
+# ==========================================
+# Iterative Deepening Search
+# ==========================================
+
+def ids(start, goal):
+
+    for depth in range(len(campus) + 1):
+
+        result = dls(
+            start,
+            goal,
+            depth,
+            [start]
+        )
+
+        if result:
+            return result
+
+    return None
+
+# ==========================================
 # Main Program
-# -------------------------------------------------
+# ==========================================
 
-print("==========================================")
+print("=" * 42)
 print(" Intelligent Campus Navigation Assistant ")
-print("==========================================")
+print("=" * 42)
 
 print("\nAvailable Locations:\n")
 
 for place in campus:
     print("-", place)
-
-# -------------------------------------------------
-# User Input
-# -------------------------------------------------
 
 source = normalize_location(
     input("\nEnter Starting Location: ")
@@ -184,10 +235,6 @@ source = normalize_location(
 destination = normalize_location(
     input("Enter Destination Location: ")
 )
-
-# -------------------------------------------------
-# Invalid Location Checking
-# -------------------------------------------------
 
 if source not in campus:
 
@@ -199,20 +246,12 @@ if destination not in campus:
     print("\nInvalid Destination Location")
     exit()
 
-# -------------------------------------------------
-# CO4 : User Decision Making
-# -------------------------------------------------
-
 print("\nSelect Route Preference")
 print("1. Shortest Route")
 print("2. Fastest Route")
 print("3. Safest Route")
 
-choice = input("\nEnter Your Choice: ").strip()
-
-# -------------------------------------------------
-# Choice Processing
-# -------------------------------------------------
+choice = input("\nEnter Choice: ")
 
 if choice == "1":
 
@@ -231,60 +270,93 @@ else:
     print("\nInvalid Choice")
     exit()
 
-# -------------------------------------------------
-# CO6 : Integrated AI Pipeline
-# User Input -> Graph -> Constraints
-# -> Search -> Decision -> Final Route
-# -------------------------------------------------
+# ==========================================
+# A* Result
+# ==========================================
 
-cost, route = intelligent_navigation(
-    campus,
+cost, route = a_star(
     source,
     destination,
     mode
 )
 
-# -------------------------------------------------
-# Final Output
-# -------------------------------------------------
-
 print("\n===================================")
-print("        Navigation Result")
+print("Navigation Result")
 print("===================================")
 
-if cost == float("inf"):
+print("\nSelected Mode :", mode.upper())
 
-    print("\nNo Route Found")
+print("\nSearch Algorithm Used : A* Search")
+
+print("\nBest Route :")
+print(" -> ".join(route))
+
+if mode == "shortest":
+
+    print("\nTotal Distance :", round(cost, 2))
+
+elif mode == "fastest":
+
+    print("\nTotal Time :", round(cost, 2), "minutes")
 
 else:
 
-    print("\nSelected Mode :", mode.upper())
+    print("\nSafety Score :", round(cost, 3))
 
-    print("\nBest Route :")
+# ==========================================
+# Bayesian Probabilities (FOR ALL MODES)
+# ==========================================
 
-    print(" -> ".join(route))
+print("\n===================================")
+print("Bayesian Crowd Diagnosis")
+print("===================================\n")
 
-    if mode == "shortest":
+total = 0
 
-        print("\nTotal Distance :", cost)
+for location in route:
 
-    elif mode == "fastest":
+    p = posterior_probability(location)
 
-        print("\nTotal Time :", cost, "minutes")
+    total += p
 
-    elif mode == "safest":
+    print(
+        f"{location} -> P(Crowded|Noise) = {p:.3f}"
+    )
 
-        print("\nSafety Score :", round(cost, 2))
+average = total / len(route)
 
-# -------------------------------------------------
-# CO Mapping Summary
-# -------------------------------------------------
-#
-# CO1 -> Graph Representation
-# CO2 -> Search Algorithm
-# CO3 -> Constraint Satisfaction Problem
-# CO4 -> Intelligent Decision Making
-# CO5 -> Probabilistic Reasoning
-# CO6 -> Integrated AI Pipeline
-#
-# -------------------------------------------------
+print(
+    f"\nAverage Posterior Probability = {average:.3f}"
+)
+
+# ==========================================
+# IDS Result
+# ==========================================
+
+ids_route = ids(
+    source,
+    destination
+)
+
+print("\n===================================")
+print("Iterative Deepening Search Result")
+print("===================================\n")
+
+print(" -> ".join(ids_route))
+
+print("\nSearch Algorithm Used : IDS")
+
+# ==========================================
+# CO Mapping
+# ==========================================
+
+print("\n===================================")
+print("AI Concepts Demonstrated")
+print("===================================\n")
+
+print("CO1 -> Graph Representation")
+print("CO2 -> A* Search")
+print("CO3 -> Iterative Deepening Search")
+print("CO4 -> Intelligent Decision Making")
+print("CO5 -> Bayes Rule Inference")
+print("CO6 -> Integrated AI Navigation Pipeline")
